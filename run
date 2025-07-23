@@ -1,0 +1,2 @@
+pkill gunicorn
+gunicorn reffbot.asgi:application -k uvicorn.workers.UvicornWorker --log-level info
