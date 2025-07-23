@@ -3,6 +3,8 @@
 from aiogram import Router, types
 from aiogram.filters import Command
 from bot.models import ReferralEarnings, Settings
+from django.db.models import Sum
+from asgiref.sync import sync_to_async  # <- penting!
 
 router = Router()
 
@@ -10,13 +12,22 @@ router = Router()
 async def bonus_handler(msg: types.Message):
     user_id = msg.from_user.id
 
-    # Ambil total bonus dari tabel ReferralEarnings
-    total = ReferralEarnings.objects.filter(user_id=user_id).aggregate_total()
+    @sync_to_async
+    def get_total_bonus():
+        return (
+            ReferralEarnings.objects
+            .filter(user_id=user_id)
+            .aggregate(Sum("amount"))["amount__sum"] or 0
+        )
 
-    # Ambil bonus rate level 1–3 dari Settings
-    setting_keys = [f"bonus_level_{i}" for i in range(1, 4)]
-    settings = Settings.objects.filter(key__in=setting_keys)
-    rates = {s.key: float(s.value) for s in settings}
+    @sync_to_async
+    def get_bonus_rates():
+        setting_keys = [f"bonus_level_{i}" for i in range(1, 4)]
+        settings = Settings.objects.filter(key__in=setting_keys)
+        return {s.key: float(s.value) for s in settings}
+
+    total = await get_total_bonus()
+    rates = await get_bonus_rates()
 
     bonus_text = "\n".join(
         f"Level {i} → {rates.get(f'bonus_level_{i}', 0.0) * 100:.2f}%"

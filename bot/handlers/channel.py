@@ -8,6 +8,8 @@ import re
 import logging
 
 from bot.models import Users, ReferralEarnings, Settings
+from django.db import models
+from asgiref.sync import sync_to_async
 
 router = Router()
 logger = logging.getLogger("bot.channel")
@@ -48,10 +50,10 @@ async def handle_channel_post(msg: Message):
             logger.warning("❌ Tidak ada earnings yang ditemukan di pesan channel.")
             return
 
-        # Ambil rate dari Settings
-        settings = Settings.objects.all()
+        # Ambil semua rates
+        settings_qs = await sync_to_async(list)(Settings.objects.all())
         rates = {}
-        for s in settings:
+        for s in settings_qs:
             try:
                 rates[s.key.upper()] = float(s.value)
             except:
@@ -74,34 +76,25 @@ async def handle_channel_post(msg: Message):
             logger.warning("❌ Total USD <= 0, tidak ada bonus yang didistribusikan.")
             return
 
-        try:
-            await msg.bot.send_message(
-                chat_id=user_id,
-                text="✅ Transaksi kamu telah diproses dan bonus referral sudah didistribusikan."
-            )
-        except Exception as e:
-            logger.warning(f"❌ Gagal kirim notifikasi ke user {user_id}: {e}")
+        # Kirim notifikasi
+        await msg.bot.send_message(
+            chat_id=user_id,
+            text="✅ Transaksi kamu telah diproses dan bonus referral sudah didistribusikan."
+        )
 
-        try:
-            await msg.bot.send_message(
-                chat_id=ADMIN_ID,
-                text=f"📥 Withdrawal dari @{username} (ID: {user_id}) berhasil diproses."
-            )
-        except Exception as e:
-            logger.warning(f"❌ Gagal kirim notifikasi ke admin: {e}")
+        await msg.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"📥 Withdrawal dari @{username} (ID: {user_id}) berhasil diproses."
+        )
 
         current_id = user_id
         for level in range(1, 4):
-            try:
-                user = Users.objects.get(id=current_id)
-                referrer_id = user.ref_by
-                if not referrer_id:
-                    logger.info(f"🔚 Tidak ada referrer di level {level} untuk ID {current_id}")
-                    break
-            except Users.DoesNotExist:
-                logger.info(f"🔚 User ID {current_id} tidak ditemukan.")
+            user = await sync_to_async(Users.objects.filter(id=current_id).first)()
+            if not user or not user.ref_by:
+                logger.info(f"🔚 Tidak ada referrer di level {level} untuk ID {current_id}")
                 break
 
+            referrer_id = user.ref_by
             bonus = round(total_usd * BONUS_PERCENT[level], 2)
             if bonus <= 0:
                 logger.info(f"⚠️ Bonus USD untuk level {level} = 0, dilewati.")
@@ -109,7 +102,7 @@ async def handle_channel_post(msg: Message):
                 continue
 
             # Simpan ReferralEarnings
-            ReferralEarnings.objects.create(
+            await sync_to_async(ReferralEarnings.objects.create)(
                 user_id=referrer_id,
                 from_user_id=user_id,
                 amount=bonus,
@@ -120,7 +113,7 @@ async def handle_channel_post(msg: Message):
             logger.info(f"✅ Bonus {bonus} USD disimpan untuk user {referrer_id} dari level {level}")
 
             # Update bonus_balance dan total_bonus
-            Users.objects.filter(id=referrer_id).update(
+            await sync_to_async(Users.objects.filter(id=referrer_id).update)(
                 bonus_balance=models.F('bonus_balance') + bonus,
                 total_bonus=models.F('total_bonus') + bonus
             )
