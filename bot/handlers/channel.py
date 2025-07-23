@@ -2,11 +2,12 @@
 
 from aiogram import Router, types
 from aiogram.types import Message
-from core.config import supabase, ADMIN_ID
-
+from core.config import ADMIN_ID
 from datetime import datetime
 import re
 import logging
+
+from bot.models import Users, ReferralEarnings, Settings
 
 router = Router()
 logger = logging.getLogger("bot.channel")
@@ -24,7 +25,6 @@ async def handle_channel_post(msg: Message):
     logger.debug(f"📝 Isi pesan:\n{msg.text}")
 
     try:
-        # Ekstrak user ID Telegram
         user_id_match = re.search(r"ID:\s*(\d+)", msg.text)
         if not user_id_match:
             logger.warning("❌ Tidak ditemukan user ID di pesan channel.")
@@ -32,12 +32,10 @@ async def handle_channel_post(msg: Message):
         user_id = int(user_id_match.group(1))
         logger.info(f"👤 ID pengguna yang ditemukan: {user_id}")
 
-        # Ekstrak nama & username
         username_match = re.search(r"Username:\s*@?(\w+)", msg.text)
         username = username_match.group(1) if username_match else "unknown"
         logger.info(f"🔍 Username ditemukan: @{username}")
 
-        # Ekstrak earnings dari pesan
         earnings = {}
         for currency in CURRENCIES:
             match = re.search(fr"{currency}:\s*([\d.]+)", msg.text)
@@ -50,17 +48,15 @@ async def handle_channel_post(msg: Message):
             logger.warning("❌ Tidak ada earnings yang ditemukan di pesan channel.")
             return
 
-        # Ambil rate konversi dari Settings Supabase
-        settings = supabase.table("Settings").select("key", "value").execute()
+        # Ambil rate dari Settings
+        settings = Settings.objects.all()
         rates = {}
-        for s in settings.data:
-            k = s["key"].upper()
+        for s in settings:
             try:
-                rates[k] = float(s["value"])
+                rates[s.key.upper()] = float(s.value)
             except:
                 continue
 
-        # Hitung total earning dalam USD
         total_usd = 0.0
         for currency, amount in earnings.items():
             rate = rates.get(currency.upper())
@@ -78,7 +74,6 @@ async def handle_channel_post(msg: Message):
             logger.warning("❌ Total USD <= 0, tidak ada bonus yang didistribusikan.")
             return
 
-        # Notifikasi ke user
         try:
             await msg.bot.send_message(
                 chat_id=user_id,
@@ -87,7 +82,6 @@ async def handle_channel_post(msg: Message):
         except Exception as e:
             logger.warning(f"❌ Gagal kirim notifikasi ke user {user_id}: {e}")
 
-        # Notifikasi ke admin
         try:
             await msg.bot.send_message(
                 chat_id=ADMIN_ID,
@@ -96,17 +90,16 @@ async def handle_channel_post(msg: Message):
         except Exception as e:
             logger.warning(f"❌ Gagal kirim notifikasi ke admin: {e}")
 
-        # Distribusi bonus ke referrer chain
         current_id = user_id
         for level in range(1, 4):
-            user = supabase.table("Users").select("ref_by").eq("id", current_id).execute()
-            if not user.data:
-                logger.info(f"🔚 User ID {current_id} tidak ditemukan di database.")
-                break
-
-            referrer_id = user.data[0].get("ref_by")
-            if not referrer_id:
-                logger.info(f"🔚 Tidak ada referrer di level {level} untuk ID {current_id}")
+            try:
+                user = Users.objects.get(id=current_id)
+                referrer_id = user.ref_by
+                if not referrer_id:
+                    logger.info(f"🔚 Tidak ada referrer di level {level} untuk ID {current_id}")
+                    break
+            except Users.DoesNotExist:
+                logger.info(f"🔚 User ID {current_id} tidak ditemukan.")
                 break
 
             bonus = round(total_usd * BONUS_PERCENT[level], 2)
@@ -115,34 +108,24 @@ async def handle_channel_post(msg: Message):
                 current_id = referrer_id
                 continue
 
-            # Simpan ke database
-            supabase.table("Referral_earnings").insert({
-                "user_id": referrer_id,
-                "from_user_id": user_id,
-                "amount": bonus,
-                "level": level,
-                "currency": "USD",
-                "date": datetime.utcnow().isoformat(timespec="seconds") + "Z"
-            }).execute()
+            # Simpan ReferralEarnings
+            ReferralEarnings.objects.create(
+                user_id=referrer_id,
+                from_user_id=user_id,
+                amount=bonus,
+                level=level,
+                currency="USD",
+                date=datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            )
             logger.info(f"✅ Bonus {bonus} USD disimpan untuk user {referrer_id} dari level {level}")
 
+            # Update bonus_balance dan total_bonus
+            Users.objects.filter(id=referrer_id).update(
+                bonus_balance=models.F('bonus_balance') + bonus,
+                total_bonus=models.F('total_bonus') + bonus
+            )
+            logger.info(f"⬆️ bonus_balance dan total_bonus user {referrer_id} ditambah {bonus} USD")
 
-            # Update bonus_balance di tabel Users
-            supabase.rpc("increment_bonus_balance", {
-                "uid": referrer_id,
-                "amount": bonus
-            }).execute()
-            logger.info(f"⬆️ bonus_balance user {referrer_id} ditambah {bonus} USD")
-
-            # Update total_bonus juga
-            supabase.rpc("increment_total_bonus", {
-                "uid": referrer_id,
-                "amount": bonus
-            }).execute()
-            logger.info(f"📈 total_bonus user {referrer_id} ditambah {bonus} USD")
-
-
-            # Kirim notif ke referrer
             try:
                 await msg.bot.send_message(
                     chat_id=referrer_id,

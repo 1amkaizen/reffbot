@@ -1,8 +1,10 @@
-# File: bot/handlers/stats.py
+# Letak: bot/handlers/stats.py
 
 from aiogram import Router, types
 from aiogram.filters import Command
-from core.config import supabase, USD_RATE
+from bot.models import Users, ReferralEarnings
+from asgiref.sync import sync_to_async
+from core.config import USD_RATE
 
 router = Router()
 
@@ -13,35 +15,42 @@ async def stats_handler(msg: types.Message):
     # ========================
     # Ambil Level 1
     # ========================
-    level1_result = supabase.table("Users").select("id").eq("ref_by", user_id).execute()
-    level1_users = [user["id"] for user in level1_result.data]
-    
+    level1_users = await sync_to_async(list)(
+        Users.objects.filter(ref_by=user_id).values_list("id", flat=True)
+    )
+
     # ========================
     # Ambil Level 2
     # ========================
     level2_users = []
     for uid in level1_users:
-        result = supabase.table("Users").select("id").eq("ref_by", uid).execute()
-        level2_users.extend([user["id"] for user in result.data])
+        sub_users = await sync_to_async(list)(
+            Users.objects.filter(ref_by=uid).values_list("id", flat=True)
+        )
+        level2_users.extend(sub_users)
 
     # ========================
     # Ambil Level 3
     # ========================
     level3_users = []
     for uid in level2_users:
-        result = supabase.table("Users").select("id").eq("ref_by", uid).execute()
-        level3_users.extend([user["id"] for user in result.data])
+        sub_users = await sync_to_async(list)(
+            Users.objects.filter(ref_by=uid).values_list("id", flat=True)
+        )
+        level3_users.extend(sub_users)
 
     # ========================
     # Hitung bonus per level
     # ========================
-    def total_bonus_for_level(level: int):
-        result = supabase.table("Referral_earnings").select("amount").eq("user_id", user_id).eq("level", level).execute()
-        return sum(item["amount"] for item in result.data) if result.data else 0.0
+    async def total_bonus_for_level(level: int):
+        entries = await sync_to_async(list)(
+            Referral_earnings.objects.filter(user_id=user_id, level=level).values_list("amount", flat=True)
+        )
+        return sum(entries)
 
-    bonus_level_1 = total_bonus_for_level(1)
-    bonus_level_2 = total_bonus_for_level(2)
-    bonus_level_3 = total_bonus_for_level(3)
+    bonus_level_1 = await total_bonus_for_level(1)
+    bonus_level_2 = await total_bonus_for_level(2)
+    bonus_level_3 = await total_bonus_for_level(3)
 
     total_bonus_usd = bonus_level_1 + bonus_level_2 + bonus_level_3
     total_bonus_idr = total_bonus_usd * USD_RATE

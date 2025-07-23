@@ -3,7 +3,8 @@
 
 from aiogram import Router, types, F
 from aiogram.types import Message
-from core.config import supabase, ADMIN_IDS
+from core.config import ADMIN_IDS
+from bot.models import Settings  # Import model Settings
 
 router = Router()
 
@@ -28,6 +29,7 @@ async def handle_set_bonus(msg: Message):
         return
 
     key = f"bonus_level_{level}"
-    supabase.table("Settings").upsert({"key": key, "value": str(value)}).execute()
+    # Simpan atau update ke DB pakai Django ORM
+    Settings.objects.update_or_create(key=key, defaults={"value": str(value)})
 
     await msg.answer(f"✅ Bonus level {level} berhasil diset ke {value * 100:.2f}%")

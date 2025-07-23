@@ -1,3 +1,5 @@
+# Letak: bot/handlers/link_referral.py
+
 from aiogram import Router, types
 from aiogram.filters import Command
 from core.config import BOT_USERNAME

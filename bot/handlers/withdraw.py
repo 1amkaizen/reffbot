@@ -2,8 +2,9 @@
 
 from aiogram import Router, types
 from aiogram.filters import Command
-from core.config import supabase
 from datetime import datetime
+from bot.models import Users, ReferralEarnings, WithdrawRequests, Settings
+from asgiref.sync import sync_to_async
 
 router = Router()
 
@@ -11,51 +12,31 @@ router = Router()
 async def handle_withdraw(msg: types.Message):
     user_id = msg.from_user.id
 
-    # Ambil data user
-    user_res = supabase.table("Users").select("id").eq("id", user_id).execute()
-    if not user_res.data:
+    # Cek apakah user ada
+    user_exists = await sync_to_async(Users.objects.filter(id=user_id).exists)()
+    if not user_exists:
         return await msg.answer("❌ Data akun kamu tidak ditemukan.")
 
-    # Hitung total bonus dari Referral_earnings
-    bonus_data = supabase.table("Referral_earnings")\
-        .select("amount")\
-        .eq("user_id", user_id)\
-        .execute()
-    total_bonus = sum(float(row["amount"]) for row in bonus_data.data)
+    # Total referral bonus
+    bonus_data = await sync_to_async(list)(
+        Referral_earnings.objects.filter(user_id=user_id).values("amount")
+    )
+    total_bonus = sum(float(row["amount"]) for row in bonus_data)
 
-    # Ambil total withdrawal yang sedang diproses
-    pending_res = supabase.table("Withdraw_requests")\
-        .select("amount, currency")\
-        .eq("user_id", user_id)\
-        .eq("status", "pending")\
-        .execute()
+    # Pending withdrawals
+    pending = await sync_to_async(list)(
+        Withdraw_requests.objects.filter(user_id=user_id, status="pending").values("amount", "currency")
+    )
 
-    # Ambil total withdrawal yang sudah berhasil
-    success_res = supabase.table("Withdraw_requests")\
-        .select("amount, currency")\
-        .eq("user_id", user_id)\
-        .eq("status", "approved")\
-        .execute()
+    # Approved withdrawals
+    approved = await sync_to_async(list)(
+        Withdraw_requests.objects.filter(user_id=user_id, status="approved").values("amount", "currency")
+    )
 
-    # Fungsi konversi ke USD
-    def sum_usd(data):
-        rates = {
-            "USDT": 1.0,
-            "TRX": float(get_setting("TRX") or 1),
-            "BDT": float(get_setting("BDT") or 1),
-            "PKR": float(get_setting("PKR") or 1),
-            "IDR": float(get_setting("IDR") or 16000),
-        }
-        total = 0.0
-        for item in data:
-            amount = float(item.get("amount", 0))
-            currency = item.get("currency", "USD")
-            rate = rates.get(currency.upper(), 1)
-            total += amount / rate
-        return total
-
-    pending_usd = sum_usd(pending_res.data)
-    withdrawn_usd = sum_usd(success_res.data)
+    # Hitung USD dari data withdraw
+    rates = await get_all_rates()
+    pending_usd = sum_usd(pending, rates)
+    withdrawn_usd = sum_usd(approved, rates)
     can_be_withdrawn = total_bonus - pending_usd - withdrawn_usd
 
     msg_text = (
@@ -72,9 +53,30 @@ async def handle_withdraw(msg: types.Message):
     await msg.answer(msg_text, parse_mode="HTML")
 
 
-# Helper ambil setting dari tabel Settings
-def get_setting(key: str) -> str:
-    res = supabase.table("Settings").select("value").eq("key", key.upper()).limit(1).execute()
-    if res.data:
-        return res.data[0]["value"]
-    return None
+# Ambil setting rate dari Settings
+async def get_all_rates():
+    keys = ["TRX", "BDT", "PKR", "IDR"]
+    defaults = {"TRX": 1, "BDT": 1, "PKR": 1, "IDR": 16000}
+    data = await sync_to_async(list)(
+        Settings.objects.filter(key__in=keys).values("key", "value")
+    )
+    rates = {"USDT": 1.0}
+    for item in data:
+        try:
+            rates[item["key"].upper()] = float(item["value"])
+        except:
+            rates[item["key"].upper()] = defaults[item["key"].upper()]
+    for key in keys:
+        rates.setdefault(key, defaults[key])
+    return rates
+
+
+# Konversi list withdrawal ke USD
+def sum_usd(data, rates):
+    total = 0.0
+    for item in data:
+        amount = float(item.get("amount", 0))
+        currency = item.get("currency", "USD")
+        rate = rates.get(currency.upper(), 1)
+        total += amount / rate
+    return total

@@ -1,7 +1,9 @@
 # File: bot/handlers/admin_reset.py
+# Letak: bot/handlers/admin_reset.py
 
 from aiogram import Router, types, F
-from core.config import supabase, ADMIN_IDS
+from core.config import ADMIN_IDS
+from bot.models import ReferralEarnings, WithdrawRequests, Users  # ✅ Import models
 
 router = Router()
 
@@ -14,20 +16,13 @@ async def reset_bonus_handler(msg: types.Message):
     if len(cmd) != 2 or cmd[1] != "all":
         return await msg.answer("Gunakan format: /resetbonus all")
 
-    # 1. Hapus semua isi dari tabel Referral_earnings
-    supabase.table("Referral_earnings").delete().neq("user_id", 0).execute()
+    # 1. Hapus semua data ReferralEarnings
+    ReferralEarnings.objects.all().delete()
 
-    # 2. Hapus semua data withdraw
-    supabase.table("Withdraw_requests").delete().neq("user_id", 0).execute()
+    # 2. Hapus semua data WithdrawRequests
+    WithdrawRequests.objects.all().delete()
 
-    # 3. Reset kolom saldo bonus jika memang ada
-    try:
-        supabase.table("Users").update({
-            "bonus_balance": 0.0,
-            "withdrawn_bonus": 0.0
-        }).neq("id", 0).execute()
-    except Exception:
-        # Abaikan jika kolom bonus_balance atau withdrawn_bonus memang tidak ada
-        pass
+    # 3. Reset bonus_balance dan withdrawn_bonus ke 0
+    Users.objects.all().update(bonus_balance=0.0, total_bonus=0.0)
 
     await msg.answer("✅ Semua data bonus referral dan withdrawal berhasil di-reset.")

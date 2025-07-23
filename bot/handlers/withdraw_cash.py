@@ -1,9 +1,11 @@
-# File: bot/handlers/withdraw_cash.py
+# Letak: bot/handlers/withdraw_cash.py
 
 from aiogram import Router, types
 from aiogram.filters import Command
-from core.config import supabase
 from datetime import datetime
+from core.config import USD_RATE
+from bot.models import Users, WithdrawRequests, Settings
+from asgiref.sync import sync_to_async
 
 router = Router()
 
@@ -35,19 +37,18 @@ async def handle_withdraw_cash(msg: types.Message):
         )
 
     user_id = msg.from_user.id
-    rates = get_currency_rates()
+    rates = await get_currency_rates()
 
     rate = rates.get(currency)
     if not rate:
         return await msg.answer(f"❌ Rate untuk mata uang {currency} belum diatur di Settings.")
 
     # Ambil bonus_balance user
-    user_res = supabase.table("Users").select("bonus_balance").eq("id", user_id).execute()
-    if not user_res.data:
+    user = await sync_to_async(Users.objects.filter(id=user_id).first)()
+    if not user:
         return await msg.answer("❌ Akun kamu belum memiliki saldo bonus.")
 
-    user_data = user_res.data[0]
-    bonus_balance = float(user_data.get("bonus_balance", 0.0))
+    bonus_balance = float(user.bonus_balance)
 
     # Hitung nilai dalam USD dari jumlah withdraw yang diminta
     requested_usd = amount if currency == "USD" else amount / rate
@@ -55,29 +56,29 @@ async def handle_withdraw_cash(msg: types.Message):
     if bonus_balance < requested_usd:
         return await msg.answer("❌ Saldo kamu tidak cukup untuk withdraw jumlah tersebut.")
 
-    # Kurangi bonus_balance via RPC Supabase
-    supabase.rpc("increment_bonus_balance", {
-        "uid": user_id,
-        "amount": -requested_usd
-    }).execute()
+    # Kurangi saldo user
+    user.bonus_balance = bonus_balance - requested_usd
+    await sync_to_async(user.save)()
 
-    # Simpan permintaan withdraw ke tabel Withdraw_requests
-    supabase.table("Withdraw_requests").insert({
-        "user_id": user_id,
-        "amount": amount,
-        "currency": currency,
-        "status": "pending",
-        "created_at": datetime.utcnow().isoformat()
-    }).execute()
+    # Simpan permintaan withdraw
+    await sync_to_async(Withdraw_requests.objects.create)(
+        user_id=user_id,
+        amount=amount,
+        currency=currency,
+        status="pending",
+        created_at=datetime.utcnow().isoformat()
+    )
 
     await msg.answer("✅ Permintaan withdraw kamu sudah dicatat dan akan diproses oleh admin.")
 
 
 # Ambil semua rate dari Settings
-def get_currency_rates():
-    result = supabase.table("Settings").select("key", "value").in_("key", list(VALID_CURRENCIES)).execute()
+async def get_currency_rates():
+    items = await sync_to_async(list)(
+        Settings.objects.filter(key__in=VALID_CURRENCIES).values("key", "value")
+    )
     rates = {}
-    for item in result.data:
+    for item in items:
         try:
             rates[item["key"].upper()] = float(item["value"])
         except (KeyError, ValueError):

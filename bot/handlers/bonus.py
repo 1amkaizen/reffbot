@@ -1,8 +1,8 @@
-# File: bot/handlers/bonus.py
+# Letak: bot/handlers/bonus.py
 
 from aiogram import Router, types
 from aiogram.filters import Command
-from core.config import supabase
+from bot.models import ReferralEarnings, Settings
 
 router = Router()
 
@@ -10,23 +10,13 @@ router = Router()
 async def bonus_handler(msg: types.Message):
     user_id = msg.from_user.id
 
-    # Ambil total bonus user dari tabel Referral_earnings
-    result = supabase.table("Referral_earnings") \
-        .select("amount") \
-        .eq("user_id", user_id) \
-        .execute()
+    # Ambil total bonus dari tabel ReferralEarnings
+    total = ReferralEarnings.objects.filter(user_id=user_id).aggregate_total()
 
-    earnings = result.data or []
-    total = sum(e["amount"] for e in earnings)
-
-    # Ambil bonus rate level 1–3 dari tabel Settings
+    # Ambil bonus rate level 1–3 dari Settings
     setting_keys = [f"bonus_level_{i}" for i in range(1, 4)]
-    settings = supabase.table("Settings") \
-        .select("key", "value") \
-        .in_("key", setting_keys) \
-        .execute()
-
-    rates = {s["key"]: float(s["value"]) for s in (settings.data or [])}
+    settings = Settings.objects.filter(key__in=setting_keys)
+    rates = {s.key: float(s.value) for s in settings}
 
     bonus_text = "\n".join(
         f"Level {i} → {rates.get(f'bonus_level_{i}', 0.0) * 100:.2f}%"

@@ -1,14 +1,16 @@
+# File: bot/handlers/admin_rate.py
 # Letak: bot/handlers/admin_rate.py
 
 from aiogram import Router, types
 from aiogram.filters import Command
-from core.config import supabase, ADMIN_IDS
+from core.config import ADMIN_IDS
+from bot.models import Settings  # ✅ Import model Settings
 
 router = Router()
 
 @router.message(Command("setrate"))
 async def set_usd_rate(msg: types.Message):
-    if msg.from_user.id not in ADMIN_IDS:  # ✅ FIXED
+    if msg.from_user.id not in ADMIN_IDS:
         return await msg.answer("❌ Kamu tidak punya akses untuk perintah ini.")
 
     parts = msg.text.strip().split()
@@ -17,11 +19,7 @@ async def set_usd_rate(msg: types.Message):
 
     new_rate = int(parts[1])
 
-    # Cek apakah key "usd_rate" sudah ada
-    existing = supabase.table("Settings").select("key").eq("key", "usd_rate").execute()
-    if existing.data:
-        supabase.table("Settings").update({"value": str(new_rate)}).eq("key", "usd_rate").execute()
-    else:
-        supabase.table("Settings").insert({"key": "usd_rate", "value": str(new_rate)}).execute()
+    # Update atau insert usd_rate
+    Settings.objects.update_or_create(key="usd_rate", defaults={"value": str(new_rate)})
 
     await msg.answer(f"✅ Rate USD berhasil diupdate ke Rp {new_rate}")
