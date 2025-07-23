@@ -46,7 +46,7 @@ async def start_handler(msg: types.Message):
 
     if ref_code:
         try:
-            await sync_to_async(Referral_earnings.objects.create)(
+            await sync_to_async(ReferralEarnings.objects.create)(
                 user_id=ref_code,
                 from_user_id=user_id,
                 amount=REFERRAL_BONUS_LEVEL1,

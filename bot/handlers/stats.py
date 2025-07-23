@@ -44,7 +44,7 @@ async def stats_handler(msg: types.Message):
     # ========================
     async def total_bonus_for_level(level: int):
         entries = await sync_to_async(list)(
-            Referral_earnings.objects.filter(user_id=user_id, level=level).values_list("amount", flat=True)
+            ReferralEarnings.objects.filter(user_id=user_id, level=level).values_list("amount", flat=True)
         )
         return sum(entries)
 

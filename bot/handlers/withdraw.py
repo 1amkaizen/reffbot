@@ -19,18 +19,18 @@ async def handle_withdraw(msg: types.Message):
 
     # Total referral bonus
     bonus_data = await sync_to_async(list)(
-        Referral_earnings.objects.filter(user_id=user_id).values("amount")
+        ReferralEarnings.objects.filter(user_id=user_id).values("amount")
     )
     total_bonus = sum(float(row["amount"]) for row in bonus_data)
 
     # Pending withdrawals
     pending = await sync_to_async(list)(
-        Withdraw_requests.objects.filter(user_id=user_id, status="pending").values("amount", "currency")
+        WithdrawRequests.objects.filter(user_id=user_id, status="pending").values("amount", "currency")
     )
 
     # Approved withdrawals
     approved = await sync_to_async(list)(
-        Withdraw_requests.objects.filter(user_id=user_id, status="approved").values("amount", "currency")
+        WithdrawRequests.objects.filter(user_id=user_id, status="approved").values("amount", "currency")
     )
 
     # Hitung USD dari data withdraw

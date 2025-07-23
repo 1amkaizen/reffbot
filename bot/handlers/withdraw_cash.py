@@ -61,7 +61,7 @@ async def handle_withdraw_cash(msg: types.Message):
     await sync_to_async(user.save)()
 
     # Simpan permintaan withdraw
-    await sync_to_async(Withdraw_requests.objects.create)(
+    await sync_to_async(WithdrawRequests.objects.create)(
         user_id=user_id,
         amount=amount,
         currency=currency,
