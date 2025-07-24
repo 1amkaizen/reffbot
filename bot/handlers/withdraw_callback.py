@@ -7,7 +7,7 @@ from aiogram.fsm.state import State, StatesGroup
 from bot.models import Users, ReferralEarnings, WithdrawRequests
 from asgiref.sync import sync_to_async
 from datetime import datetime
-from core.config import REQUIRED_CHANNEL
+from core.config import ADMIN_CHANNEL_ID
 import pytz
 import os
 from django.db.models import Count
@@ -170,6 +170,7 @@ async def card_received(msg: types.Message, state: FSMContext):
         f"• Time: {time_str} (UTC +6:00)\n\n"
         f"{country_info}"
     )
-    await msg.bot.send_message(chat_id=f"@{REQUIRED_CHANNEL}", text=withdraw_info)
+    await msg.bot.send_message(chat_id=int(ADMIN_CHANNEL_ID), text=withdraw_info)
+
 
     await state.clear()
