@@ -11,6 +11,8 @@ class Users(models.Model):
     joined_at = models.TextField(null=True, blank=True)
     bonus_balance = models.FloatField(default=0)
     total_bonus = models.FloatField(default=0)
+    team_reset_at = models.TextField(null=True, blank=True)
+
 
     def __str__(self):
         return f"{self.fullname} ({self.id})"
@@ -50,6 +52,8 @@ class WithdrawRequests(models.Model):
     amount = models.FloatField()
     currency = models.TextField()
     status = models.TextField()
+    card_name = models.TextField(null=True, blank=True)
+
     created_at = models.TextField()
     approved_at = models.DateTimeField(null=True, blank=True)
 

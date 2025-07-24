@@ -2,15 +2,18 @@
 
 from aiogram import Router, types
 from aiogram.filters import CommandStart
-from bot.models import Users, ReferralEarnings # ORM models
+from bot.models import Users, ReferralEarnings, Settings  # ⬅️ pastikan Settings di-import
 from datetime import datetime
 from asgiref.sync import sync_to_async
 import logging
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.exceptions import TelegramBadRequest
+from core.config import REQUIRED_CHANNEL
 
 router = Router()
 logger = logging.getLogger("bot.start")
 
-REFERRAL_BONUS_LEVEL1 = 1.0  # bisa diubah nanti
+REFERRAL_BONUS_LEVEL1 = 1.0  # jika ingin dijadikan setting, bisa taruh di DB
 
 @router.message(CommandStart())
 async def start_handler(msg: types.Message):
@@ -20,18 +23,19 @@ async def start_handler(msg: types.Message):
 
     logger.info(f"👤 Start command from user: {user_id} ({username})")
 
+    # Ambil kode referral dari parameter
     parts = msg.text.split(" ")
     ref_code = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
     logger.info(f"🔗 Referral code: {ref_code}" if ref_code else "ℹ️ No referral code provided")
 
-    # Cek apakah user sudah ada
+    # Cek apakah user sudah terdaftar
     user_exists = await sync_to_async(Users.objects.filter(id=user_id).exists)()
     if user_exists:
         logger.info(f"✅ User {user_id} already registered")
-        return await msg.answer("Kamu sudah terdaftar!")
+        return await check_and_prompt_join(msg)
 
+    # Register user baru
     try:
-        # Simpan user baru
         await sync_to_async(Users.objects.create)(
             id=user_id,
             fullname=fullname,
@@ -44,6 +48,7 @@ async def start_handler(msg: types.Message):
         logger.error(f"❌ Error inserting new user: {e}")
         return await msg.answer("Terjadi kesalahan saat mendaftar.")
 
+    # Tambahkan bonus referral
     if ref_code:
         try:
             await sync_to_async(ReferralEarnings.objects.create)(
@@ -57,6 +62,32 @@ async def start_handler(msg: types.Message):
         except Exception as e:
             logger.error(f"[REFERRAL ERROR] Gagal insert referral bonus: {e}")
 
-        await msg.answer("Selamat datang! Kamu terdaftar lewat referral.")
-    else:
-        await msg.answer("Selamat datang! Kamu sudah terdaftar.")
+    return await check_and_prompt_join(msg)
+
+# Cek apakah user sudah join channel
+async def check_and_prompt_join(msg: types.Message):
+    try:
+        chat_member = await msg.bot.get_chat_member(chat_id=f"@{REQUIRED_CHANNEL}", user_id=msg.from_user.id)
+        if chat_member.status in ("member", "administrator", "creator"):
+            welcome_text = await get_welcome_message()
+            return await msg.answer(welcome_text or "Kamu sudah terdaftar!")  # fallback jika tidak ada
+    except TelegramBadRequest as e:
+        logger.warning(f"⚠️ Gagal cek keanggotaan channel: {e}")
+
+    # User belum join, tampilkan tombol join
+    join_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Join Channel", url=f"https://t.me/{REQUIRED_CHANNEL}")]
+    ])
+    return await msg.answer(
+        "Untuk melanjutkan, silakan join channel terlebih dahulu.",
+        reply_markup=join_keyboard
+    )
+
+# Ambil welcome message dari database
+async def get_welcome_message():
+    try:
+        setting = await sync_to_async(Settings.objects.filter(key="welcome_message").first)()
+        return setting.value if setting else None
+    except Exception as e:
+        logger.warning(f"⚠️ Gagal ambil welcome message dari DB: {e}")
+        return None

@@ -15,3 +15,4 @@ ADMIN_IDS = [int(x.strip()) for x in ADMIN_ID.split(",") if x.strip().isdigit()]
 
 # Default rate USD → IDR jika tidak diset di Settings
 USD_RATE = float(os.getenv("USD_RATE", 16000))
+REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "namachannelkamu")

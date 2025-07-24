@@ -6,6 +6,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from core.config import ADMIN_IDS
 from bot.models import WithdrawRequests
 from datetime import datetime
+from asgiref.sync import sync_to_async  # ⬅️ WAJIB untuk ORM
 
 router = Router()
 
@@ -17,9 +18,9 @@ async def list_withdraw_handler(msg: types.Message):
     if not is_admin(msg.from_user.id):
         return await msg.answer("⛔ Akses ditolak.")
 
-    records = WithdrawRequests.objects.filter(status="pending")
+    records = await sync_to_async(lambda: list(WithdrawRequests.objects.filter(status="pending")))()
 
-    if not records.exists():
+    if not records:
         return await msg.answer("Tidak ada permintaan withdraw yang pending.")
 
     for item in records:
@@ -46,13 +47,13 @@ async def approve_withdraw_callback(callback: types.CallbackQuery):
     withdraw_id = int(callback.data.split(":")[1])
 
     try:
-        wd = WithdrawRequests.objects.get(id=withdraw_id)
+        wd = await sync_to_async(WithdrawRequests.objects.get)(id=withdraw_id)
     except WithdrawRequests.DoesNotExist:
         return await callback.message.edit_text("Data withdraw tidak ditemukan.")
 
     wd.status = "approved"
     wd.approved_at = datetime.utcnow()
-    wd.save()
+    await sync_to_async(wd.save)()  # ⬅️ simpan perubahan via sync_to_async
 
     await callback.bot.send_message(
         chat_id=wd.user_id,
