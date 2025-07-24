@@ -12,10 +12,11 @@ class Users(models.Model):
     bonus_balance = models.FloatField(default=0)
     total_bonus = models.FloatField(default=0)
     team_reset_at = models.TextField(null=True, blank=True)
-
+    country_code = models.CharField(max_length=2, null=True, blank=True)
 
     def __str__(self):
         return f"{self.fullname} ({self.id})"
+
 
 
 # Tabel: Withdrawals
