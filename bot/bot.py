@@ -28,6 +28,11 @@ dp.include_router(admin_rate.router)
 dp.include_router(admin_bonus.router)
 dp.include_router(admin_resetteam.router)
 
+
+from bot.middlewares.reset_fsm_on_command import ResetFSMOnCommand
+
+dp.message.middleware(ResetFSMOnCommand())
+
 # ⬇️ Hanya dipakai jika jalankan polling, bukan webhook
 async def run_bot():
     await dp.start_polling(bot)
