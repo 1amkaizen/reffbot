@@ -2,7 +2,7 @@
 
 from aiogram import Router, types
 from aiogram.filters import CommandStart
-from bot.models import Users, ReferralEarnings, Settings  # ⬅️ pastikan Settings di-import
+from bot.models import Users, Settings  # ReferralEarnings tidak dipakai di sini
 from datetime import datetime
 from asgiref.sync import sync_to_async
 import logging
@@ -12,8 +12,6 @@ from core.config import REQUIRED_CHANNEL
 
 router = Router()
 logger = logging.getLogger("bot.start")
-
-REFERRAL_BONUS_LEVEL1 = 1.0  # jika ingin dijadikan setting, bisa taruh di DB
 
 @router.message(CommandStart())
 async def start_handler(msg: types.Message):
@@ -44,23 +42,11 @@ async def start_handler(msg: types.Message):
             joined_at=datetime.utcnow().isoformat()
         )
         logger.info(f"🆕 New user registered: {user_id} ({username})")
+        if ref_code:
+            logger.info(f"👥 Referral recorded: {user_id} was referred by {ref_code}")
     except Exception as e:
         logger.error(f"❌ Error inserting new user: {e}")
         return await msg.answer("Terjadi kesalahan saat mendaftar.")
-
-    # Tambahkan bonus referral
-    if ref_code:
-        try:
-            await sync_to_async(ReferralEarnings.objects.create)(
-                user_id=ref_code,
-                from_user_id=user_id,
-                amount=REFERRAL_BONUS_LEVEL1,
-                level=1,
-                date=datetime.utcnow().isoformat()
-            )
-            logger.info(f"🎁 Bonus referral diberikan ke {ref_code} dari {user_id}")
-        except Exception as e:
-            logger.error(f"[REFERRAL ERROR] Gagal insert referral bonus: {e}")
 
     return await check_and_prompt_join(msg)
 
