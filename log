@@ -1,0 +1,3 @@
+journalctl -u reffbot -f
+
+

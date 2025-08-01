@@ -1,4 +1,4 @@
-# Letak: bot/handlers/withdraw_callback.py
+# 📍 Letak: bot/handlers/withdraw_callback.py
 
 from aiogram import Router, types, F
 from aiogram.types import CallbackQuery
@@ -110,6 +110,23 @@ async def card_received(msg: types.Message, state: FSMContext):
         card_name=card_name,
     )
 
+    # === REWARD REFERRAL WD ===
+    if user.ref_by:
+        reward_amount = amount * 0.05  # 5% reward
+        referrer = await sync_to_async(Users.objects.filter(id=user.referred_by_id).first)()
+        if referrer:
+            referrer.bonus_balance += reward_amount
+            referrer.total_bonus += reward_amount
+            await sync_to_async(referrer.save)()
+            await sync_to_async(ReferralEarnings.objects.create)(
+                user=referrer,
+                from_user_id=user.id,
+                amount=reward_amount,
+                level=1,
+                date=now.strftime("%Y-%m-%d"),
+                currency="USD"
+            )
+
     await msg.answer(
         f"📤 Your transfer has been successful ✅\n\n"
         f"• Name: {user.fullname or msg.from_user.full_name}\n"
@@ -123,7 +140,6 @@ async def card_received(msg: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-    # Fixrate dari env
     trx_rate = float(os.getenv("TRX_RATE", "13.93"))
     bdt_rate = float(os.getenv("BDT_RATE", "69.57"))
     pkr_rate = float(os.getenv("PKR_RATE", "41.75"))
@@ -137,7 +153,6 @@ async def card_received(msg: types.Message, state: FSMContext):
 
     username = msg.from_user.username or "❌"
 
-    # Hitung jumlah withdraw per negara realtime
     withdraw_counts = await sync_to_async(
         lambda: list(
             WithdrawRequests.objects.filter(status__in=["pending", "approved"])
@@ -146,7 +161,6 @@ async def card_received(msg: types.Message, state: FSMContext):
         )
     )()
 
-    # Format negara + jumlah
     country_lines = []
     for item in withdraw_counts:
         country_code = item["user__country_code"] or "Unknown"
@@ -171,6 +185,5 @@ async def card_received(msg: types.Message, state: FSMContext):
         f"{country_info}"
     )
     await msg.bot.send_message(chat_id=int(ADMIN_CHANNEL_ID), text=withdraw_info)
-
 
     await state.clear()
