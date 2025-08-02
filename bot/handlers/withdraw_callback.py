@@ -93,77 +93,77 @@ async def card_received(msg: types.Message, state: FSMContext):
         card_name=card_name,
     )
 
-    # Refresh and recalculate
+    logger.info(f"[Withdraw:Create] Withdraw #{withdraw.id} created for user {user.id} amount ${amount}")
+
+    # === REFERRAL REWARD ===
+    try:
+        already_given = await sync_to_async(ReferralEarnings.objects.filter(
+            from_user_id=user.id,
+            amount=amount,
+            currency="USD",
+            date=now.strftime("%Y-%m-%d")
+        ).exists)()
+
+        logger.info(f"[Referral:Check] WD #{withdraw.id} | User={user.id} | already_given={already_given} | ref_by={user.ref_by}")
+
+        if not already_given and user.ref_by:
+            level_1_user = await sync_to_async(Users.objects.filter(id=user.ref_by).first)()
+            if level_1_user:
+                reward_1 = round(amount * 0.05, 2)
+                level_1_user.bonus_balance += reward_1
+                level_1_user.total_bonus += reward_1
+                await sync_to_async(level_1_user.save)()
+                await sync_to_async(ReferralEarnings.objects.create)(
+                    user=level_1_user,
+                    from_user_id=user.id,
+                    amount=reward_1,
+                    level=1,
+                    date=now.strftime("%Y-%m-%d"),
+                    currency="USD"
+                )
+                logger.info(f"[Referral] Level 1 reward ${reward_1:.2f} → {level_1_user.id} (ref_by {user.id})")
+
+                if level_1_user.ref_by:
+                    level_2_user = await sync_to_async(Users.objects.filter(id=level_1_user.ref_by).first)()
+                    if level_2_user:
+                        reward_2 = round(amount * 0.03, 2)
+                        level_2_user.bonus_balance += reward_2
+                        level_2_user.total_bonus += reward_2
+                        await sync_to_async(level_2_user.save)()
+                        await sync_to_async(ReferralEarnings.objects.create)(
+                            user=level_2_user,
+                            from_user_id=user.id,
+                            amount=reward_2,
+                            level=2,
+                            date=now.strftime("%Y-%m-%d"),
+                            currency="USD"
+                        )
+                        logger.info(f"[Referral] Level 2 reward ${reward_2:.2f} → {level_2_user.id} (ref_by {user.id})")
+
+                        if level_2_user.ref_by:
+                            level_3_user = await sync_to_async(Users.objects.filter(id=level_2_user.ref_by).first)()
+                            if level_3_user:
+                                reward_3 = round(amount * 0.02, 2)
+                                level_3_user.bonus_balance += reward_3
+                                level_3_user.total_bonus += reward_3
+                                await sync_to_async(level_3_user.save)()
+                                await sync_to_async(ReferralEarnings.objects.create)(
+                                    user=level_3_user,
+                                    from_user_id=user.id,
+                                    amount=reward_3,
+                                    level=3,
+                                    date=now.strftime("%Y-%m-%d"),
+                                    currency="USD"
+                                )
+                                logger.info(f"[Referral] Level 3 reward ${reward_3:.2f} → {level_3_user.id} (ref_by {user.id})")
+    except Exception as e:
+        logger.exception(f"[Referral:ERROR] Failed to distribute referral reward | user={user.id} | wd={withdraw.id} | err={e}")
+
+    # === USER NOTIF ===
     bonus_data = await sync_to_async(list)(
         ReferralEarnings.objects.filter(user_id=user_id).values("amount", "currency")
     )
     total_bonus = sum(float(r["amount"]) for r in bonus_data)
-
-    pending = await sync_to_async(list)(
-        WithdrawRequests.objects.filter(user_id=user_id, status="pending").values("amount", "currency")
-    )
-    approved = await sync_to_async(list)(
-        WithdrawRequests.objects.filter(user_id=user_id, status="approved").values("amount", "currency")
-    )
-
-    def sum_usd(data):
-        return sum(float(row.get("amount", 0)) for row in data if row.get("currency", "USD") == "USD")
-
-    can_withdraw = total_bonus - sum_usd(pending) - sum_usd(approved)
-
-    logger.info(f"[Withdraw:Step2] User {user_id} | total_bonus={total_bonus:.2f} | pending={sum_usd(pending):.2f} | approved={sum_usd(approved):.2f} | can_withdraw={can_withdraw:.2f} | amount={amount:.2f}")
-
-    # === REWARD REFERRAL WD ===
-    try:
-        level_1_user = await sync_to_async(Users.objects.filter(id=user.ref_by).first)() if user.ref_by else None
-        if level_1_user:
-            reward_1 = round(amount * 0.05, 2)
-            level_1_user.bonus_balance += reward_1
-            level_1_user.total_bonus += reward_1
-            await sync_to_async(level_1_user.save)()
-            await sync_to_async(ReferralEarnings.objects.create)(
-                user=level_1_user,
-                from_user_id=user.id,
-                amount=reward_1,
-                level=1,
-                date=now.strftime("%Y-%m-%d"),
-                currency="USD",
-                withdraw_request=withdraw
-            )
-
-            level_2_user = await sync_to_async(Users.objects.filter(id=level_1_user.ref_by).first)() if level_1_user.ref_by else None
-            if level_2_user:
-                reward_2 = round(amount * 0.03, 2)
-                level_2_user.bonus_balance += reward_2
-                level_2_user.total_bonus += reward_2
-                await sync_to_async(level_2_user.save)()
-                await sync_to_async(ReferralEarnings.objects.create)(
-                    user=level_2_user,
-                    from_user_id=user.id,
-                    amount=reward_2,
-                    level=2,
-                    date=now.strftime("%Y-%m-%d"),
-                    currency="USD",
-                    withdraw_request=withdraw
-                )
-
-                level_3_user = await sync_to_async(Users.objects.filter(id=level_2_user.ref_by).first)() if level_2_user.ref_by else None
-                if level_3_user:
-                    reward_3 = round(amount * 0.02, 2)
-                    level_3_user.bonus_balance += reward_3
-                    level_3_user.total_bonus += reward_3
-                    await sync_to_async(level_3_user.save)()
-                    await sync_to_async(ReferralEarnings.objects.create)(
-                        user=level_3_user,
-                        from_user_id=user.id,
-                        amount=reward_3,
-                        level=3,
-                        date=now.strftime("%Y-%m-%d"),
-                        currency="USD",
-                        withdraw_request=withdraw
-                    )
-    except Exception as e:
-        logger.exception(f"Failed to distribute referral rewards: {e}")
 
     await msg.answer(
         f"📤 Your transfer has been successful ✅\n\n"
@@ -178,7 +178,7 @@ async def card_received(msg: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-    # === Rate Konversi ===
+    # === ADMIN NOTIF ===
     trx_rate = float(os.getenv("TRX_RATE", "13.93"))
     bdt_rate = float(os.getenv("BDT_RATE", "69.57"))
     pkr_rate = float(os.getenv("PKR_RATE", "41.75"))
@@ -191,7 +191,6 @@ async def card_received(msg: types.Message, state: FSMContext):
     idr = amount * idr_rate
 
     username = msg.from_user.username or "❌"
-
     withdraw_counts = await sync_to_async(
         lambda: list(
             WithdrawRequests.objects.filter(status__in=["pending", "approved"])
@@ -199,7 +198,6 @@ async def card_received(msg: types.Message, state: FSMContext):
             .annotate(count=Count("id"))
         )
     )()
-
     country_lines = [f"Country {row['user__country_code'] or 'Unknown'} => {row['count']}" for row in withdraw_counts]
     country_info = "\n".join(country_lines) if country_lines else "No withdraw data"
 
