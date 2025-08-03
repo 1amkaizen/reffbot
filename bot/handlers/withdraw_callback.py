@@ -12,7 +12,8 @@ import pytz
 import os
 from django.db.models import Count
 import logging
-
+from bot.models import Settings
+from asgiref.sync import sync_to_async
 logger = logging.getLogger(__name__)
 router = Router()
 
@@ -178,11 +179,33 @@ async def card_received(msg: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-    # === ADMIN NOTIF ===
-    trx_rate = float(os.getenv("TRX_RATE", "13.93"))
-    bdt_rate = float(os.getenv("BDT_RATE", "69.57"))
-    pkr_rate = float(os.getenv("PKR_RATE", "41.75"))
-    idr_rate = float(os.getenv("USD_RATE", "16000"))
+    logger = logging.getLogger(__name__)
+
+    # 🔧 Fungsi ambil rate dari Settings
+    async def get_rate(symbol: str, default: float = 0.0) -> float:
+        try:
+            setting = await sync_to_async(Settings.objects.get)(key=f"rate_{symbol.upper()}")
+            return float(setting.value)
+        except Settings.DoesNotExist:
+            logger.warning(f"⚠️ Rate tidak ditemukan untuk {symbol.upper()}")
+            return default
+        except Exception as e:
+            logger.exception(f"Gagal ambil rate untuk {symbol.upper()}: {e}")
+            return default
+
+
+        # ambil rate dari database
+    trx_rate = await get_rate("TRX", 0.0)
+    bdt_rate = await get_rate("BDT", 0.0)
+    pkr_rate = await get_rate("PKR", 0.0)
+    idr_rate = await get_rate("IDR", 0.0)
+
+    # hitung nominal dari USD yang di-withdraw ke bentuk lain
+    trx = amount * trx_rate
+    bdt = amount * bdt_rate
+    pkr = amount * pkr_rate
+    idr = amount * idr_rate
+
 
     usdt = amount
     trx = amount * trx_rate

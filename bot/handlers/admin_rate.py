@@ -1,25 +1,44 @@
-# File: bot/handlers/admin_rate.py
-# Letak: bot/handlers/admin_rate.py
+# 📍 Letak: bot/handlers/admin_rate.py
 
 from aiogram import Router, types
 from aiogram.filters import Command
 from core.config import ADMIN_IDS
-from bot.models import Settings  # ✅ Import model Settings
+from bot.models import Settings
+from asgiref.sync import sync_to_async
+import logging
 
 router = Router()
 
-@router.message(Command("setrate"))
-async def set_usd_rate(msg: types.Message):
+@router.message(Command("setrates"))
+async def set_multi_rates(msg: types.Message):
     if msg.from_user.id not in ADMIN_IDS:
         return await msg.answer("❌ Kamu tidak punya akses untuk perintah ini.")
 
-    parts = msg.text.strip().split()
-    if len(parts) != 2 or not parts[1].isdigit():
-        return await msg.answer("Format salah. Contoh: /setrate 16500")
+    parts = msg.text.strip().split(maxsplit=1)
+    if len(parts) != 2:
+        return await msg.answer("Format salah.\nContoh: /setrates TRX:13.8 BDT:69.1")
 
-    new_rate = int(parts[1])
+    entries = parts[1].split()
+    success, failed = [], []
 
-    # Update atau insert usd_rate
-    Settings.objects.update_or_create(key="usd_rate", defaults={"value": str(new_rate)})
+    for entry in entries:
+        try:
+            symbol, rate_str = entry.split(":", 1)
+            rate = float(rate_str)  # validasi
 
-    await msg.answer(f"✅ Rate USD berhasil diupdate ke Rp {new_rate}")
+            await sync_to_async(Settings.objects.update_or_create)(
+                key=f"rate_{symbol.upper()}",
+                defaults={"value": str(rate)}
+            )
+            success.append(f"{symbol.upper()} = {rate}")
+        except Exception:
+            logging.exception(f"Gagal parsing rate entry: {entry}")
+            failed.append(entry)
+
+    result = ""
+    if success:
+        result += "✅ Rate berhasil disimpan untuk:\n" + "\n".join(success)
+    if failed:
+        result += f"\n⚠️ Gagal parsing untuk: {', '.join(failed)}"
+
+    await msg.answer(result)
