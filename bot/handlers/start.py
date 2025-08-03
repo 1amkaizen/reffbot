@@ -28,9 +28,18 @@ async def start_handler(msg: types.Message):
 
     # Cek apakah user sudah terdaftar
     user_exists = await sync_to_async(Users.objects.filter(id=user_id).exists)()
+
     if user_exists:
         logger.info(f"✅ User {user_id} already registered")
+
+        # Pastikan fullname dan username terisi
+        await sync_to_async(Users.objects.filter(id=user_id).update)(
+            fullname=fullname,
+            username=username,
+        )
+
         return await check_and_prompt_join(msg)
+
 
     # Register user baru
     try:

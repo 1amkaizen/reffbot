@@ -27,12 +27,49 @@ async def handle_channel_post(msg: Message):
     logger.debug(f"📝 Isi pesan:\n{msg.text}")
 
     try:
+        # Ambil ID dari teks
+        user_id = None
         user_id_match = re.search(r"ID:\s*(\d+)", msg.text)
-        if not user_id_match:
-            logger.warning("❌ Tidak ditemukan user ID di pesan channel.")
+        if user_id_match:
+            user_id = int(user_id_match.group(1))
+            logger.info(f"👤 ID pengguna ditemukan: {user_id}")
+        else:
+            logger.warning("⚠️ ID tidak ditemukan, mencoba cari via username atau nama")
+
+        # Ambil username
+        username_match = re.search(r"Username:\s*@?(\w+)", msg.text)
+        username = username_match.group(1) if username_match else None
+        if username:
+            logger.info(f"🔍 Username ditemukan: @{username}")
+
+        # Ambil fullname
+        name_match = re.search(r"Name:\s*(.+)", msg.text)
+        name = name_match.group(1).strip() if name_match else None
+        if name:
+            logger.info(f"👤 Full name ditemukan: {name}")
+
+        # Fallback cari user_id via username
+        if not user_id and username:
+            user = await sync_to_async(Users.objects.filter(username__iexact=username).first)()
+            if user:
+                user_id = user.id
+                logger.info(f"✅ Ditemukan ID dari username: {user_id}")
+            else:
+                logger.warning("❌ Username tidak ditemukan di database.")
+
+        # Fallback cari user_id via full name
+        if not user_id and name:
+            user = await sync_to_async(Users.objects.filter(full_name__iexact=name).first)()
+            if user:
+                user_id = user.id
+                logger.info(f"✅ Ditemukan ID dari nama: {user_id}")
+            else:
+                logger.warning("❌ Nama tidak ditemukan di database.")
+
+        # Kalau tetap tidak ketemu
+        if not user_id:
+            logger.warning("❌ Gagal menemukan user ID dari pesan channel.")
             return
-        user_id = int(user_id_match.group(1))
-        logger.info(f"👤 ID pengguna yang ditemukan: {user_id}")
 
         username_match = re.search(r"Username:\s*@?(\w+)", msg.text)
         username = username_match.group(1) if username_match else "unknown"
