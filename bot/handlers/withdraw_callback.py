@@ -179,7 +179,6 @@ async def card_received(msg: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-    logger = logging.getLogger(__name__)
 
     # 🔧 Fungsi ambil rate dari Settings
     async def get_rate(symbol: str, default: float = 0.0) -> float:

@@ -16,7 +16,7 @@ async def set_multi_rates(msg: types.Message):
 
     parts = msg.text.strip().split(maxsplit=1)
     if len(parts) != 2:
-        return await msg.answer("Format salah.\nContoh: /setrates TRX:13.8 BDT:69.1")
+        return await msg.answer("Format salah.\nContoh: /setrates USDT:1 TRX:13.8 BDT:69.1 PKR:41.2 IDR:16850")
 
     entries = parts[1].split()
     success, failed = [], []
