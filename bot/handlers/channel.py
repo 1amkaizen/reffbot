@@ -98,16 +98,15 @@ async def handle_channel_post(msg: Message):
                 logger.warning(f"❌ Gagal parsing rate {s.key} = {s.value}: {e}")
 
 
-        # 💵 Hitung total USD dari earnings
-        total_usd = Decimal("0.0")
-        for currency, nominal in earnings.items():
-            rate = rates.get(currency.upper())
-            if not rate or rate <= 0:
-                logger.warning(f"⚠️ Rate tidak ditemukan untuk {currency.upper()}.")
-                continue
-            usd_value = nominal / rate
-            total_usd += usd_value
-            logger.info(f"🔄 {nominal} {currency} = {usd_value:.2f} USD (rate: {rate})")
+        # 💵 Ambil hanya nominal USDT
+        usdt_amount = earnings.get("USDT", Decimal("0.0"))
+        if usdt_amount <= 0:
+            logger.warning("❌ Tidak ada USDT dalam transaksi, bonus tidak diproses.")
+            return
+
+        total_usd = usdt_amount  # langsung anggap USDT = USD karena rate USDT = 1
+        logger.info(f"💵 Total USD dari USDT saja: {total_usd}")
+
 
         total_usd = total_usd.quantize(Decimal("0.01"))
         if total_usd <= 0:

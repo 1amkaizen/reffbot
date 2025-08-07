@@ -16,7 +16,10 @@ async def set_multi_rates(msg: types.Message):
 
     parts = msg.text.strip().split(maxsplit=1)
     if len(parts) != 2:
-        return await msg.answer("Format salah.\nContoh: /setrates USDT:1 TRX:13.8 BDT:69.1 PKR:41.2 IDR:16850")
+        return await msg.answer(
+            "Format salah.\nContoh: /setrates USDT:1 TRX:13.8 BDT:69.1 PKR:41.2 IDR:16850\n\n"
+            "Artinya:\n1 USD = 13.8 TRX\n1 USD = 69.1 BDT\n1 USD = 41.2 PKR\n1 USD = 16850 IDR"
+        )
 
     entries = parts[1].split()
     success, failed = [], []
@@ -24,7 +27,7 @@ async def set_multi_rates(msg: types.Message):
     for entry in entries:
         try:
             symbol, rate_str = entry.split(":", 1)
-            rate = float(rate_str)  # validasi
+            rate = float(rate_str)
 
             await sync_to_async(Settings.objects.update_or_create)(
                 key=f"rate_{symbol.upper()}",

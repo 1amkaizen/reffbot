@@ -4,16 +4,14 @@ from aiogram import Router, types, F
 from aiogram.types import CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from bot.models import Users, ReferralEarnings, WithdrawRequests
+from bot.models import Users, ReferralEarnings, WithdrawRequests, Settings
 from asgiref.sync import sync_to_async
 from datetime import datetime
 from core.config import ADMIN_CHANNEL_ID
 import pytz
-import os
 from django.db.models import Count
 import logging
-from bot.models import Settings
-from asgiref.sync import sync_to_async
+
 logger = logging.getLogger(__name__)
 router = Router()
 
@@ -70,7 +68,7 @@ async def amount_received(msg: types.Message, state: FSMContext):
 @router.message(WithdrawState.waiting_for_card)
 async def card_received(msg: types.Message, state: FSMContext):
     data = await state.get_data()
-    amount = data["amount"]
+    amount = float(data.get("amount", 0))
     card_name = msg.text.strip()
     user_id = msg.from_user.id
 
@@ -80,6 +78,13 @@ async def card_received(msg: types.Message, state: FSMContext):
     user = await sync_to_async(Users.objects.filter(id=user_id).first)()
     if not user:
         return await msg.answer("❌ User not found.")
+
+    # 🔐 Cek apakah masih ada withdraw pending
+    already_pending = await sync_to_async(
+        WithdrawRequests.objects.filter(user_id=user_id, status="pending").exists
+    )()
+    if already_pending:
+        return await msg.answer("❗ You already have a pending withdrawal request. Please wait for it to be processed first.")
 
     now = datetime.now(pytz.timezone("Asia/Dhaka"))
     date_str = now.strftime("%m/%d/%y %H:%M:%S")
@@ -96,7 +101,7 @@ async def card_received(msg: types.Message, state: FSMContext):
 
     logger.info(f"[Withdraw:Create] Withdraw #{withdraw.id} created for user {user.id} amount ${amount}")
 
-    # === REFERRAL REWARD ===
+    # === Referral Reward ===
     try:
         already_given = await sync_to_async(ReferralEarnings.objects.filter(
             from_user_id=user.id,
@@ -160,7 +165,7 @@ async def card_received(msg: types.Message, state: FSMContext):
     except Exception as e:
         logger.exception(f"[Referral:ERROR] Failed to distribute referral reward | user={user.id} | wd={withdraw.id} | err={e}")
 
-    # === USER NOTIF ===
+    # === User Notif ===
     bonus_data = await sync_to_async(list)(
         ReferralEarnings.objects.filter(user_id=user_id).values("amount", "currency")
     )
@@ -179,8 +184,7 @@ async def card_received(msg: types.Message, state: FSMContext):
         parse_mode="HTML"
     )
 
-
-    # 🔧 Fungsi ambil rate dari Settings
+    # === Rate Conversion ===
     async def get_rate(symbol: str, default: float = 0.0) -> float:
         try:
             setting = await sync_to_async(Settings.objects.get)(key=f"rate_{symbol.upper()}")
@@ -192,25 +196,11 @@ async def card_received(msg: types.Message, state: FSMContext):
             logger.exception(f"Gagal ambil rate untuk {symbol.upper()}: {e}")
             return default
 
-
-        # ambil rate dari database
-    trx_rate = await get_rate("TRX", 0.0)
-    bdt_rate = await get_rate("BDT", 0.0)
-    pkr_rate = await get_rate("PKR", 0.0)
-    idr_rate = await get_rate("IDR", 0.0)
-
-    # hitung nominal dari USD yang di-withdraw ke bentuk lain
-    trx = amount * trx_rate
-    bdt = amount * bdt_rate
-    pkr = amount * pkr_rate
-    idr = amount * idr_rate
-
-
+    trx = amount * await get_rate("TRX", 0.0)
+    bdt = amount * await get_rate("BDT", 0.0)
+    pkr = amount * await get_rate("PKR", 0.0)
+    idr = amount * await get_rate("IDR", 0.0)
     usdt = amount
-    trx = amount * trx_rate
-    bdt = amount * bdt_rate
-    pkr = amount * pkr_rate
-    idr = amount * idr_rate
 
     username = msg.from_user.username or "❌"
     withdraw_counts = await sync_to_async(
@@ -238,6 +228,11 @@ async def card_received(msg: types.Message, state: FSMContext):
         f"• Time: {time_str} (UTC +6:00)\n\n"
         f"{country_info}"
     )
-    await msg.bot.send_message(chat_id=int(ADMIN_CHANNEL_ID), text=withdraw_info)
+
+    # 🔒 Kirim notifikasi ke channel admin dengan try-except
+    try:
+        await msg.bot.send_message(chat_id=int(ADMIN_CHANNEL_ID), text=withdraw_info)
+    except Exception as e:
+        logger.exception(f"[AdminNotif:ERROR] Failed to send withdraw info to admin channel | err={e}")
 
     await state.clear()
